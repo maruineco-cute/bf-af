@@ -20,6 +20,7 @@
 const W=720,PAINT_R=46;
 const canvas=document.querySelector('#canvas'),ctx=canvas.getContext('2d');
 const off=document.createElement('canvas'),oc=off.getContext('2d');
+const under=document.createElement('canvas'),uc=under.getContext('2d');
 const lightLayer=document.createElement('canvas'),lc=lightLayer.getContext('2d');
 const mask=document.createElement('canvas'),mc=mask.getContext('2d');
 const $=s=>document.querySelector(s);
@@ -36,8 +37,10 @@ function makeTiles(h){const t=[];for(let y=0;y<h;){const rowHeight=Math.min(34+M
 function rebuild(){
   if(topImg){
     const h=Math.round(Math.max(540,Math.min(1080,W*topImg.naturalHeight/topImg.naturalWidth)));
-    for(const c of [canvas,off,lightLayer,mask]){c.width=W;c.height=h}
+    for(const c of [canvas,off,under,lightLayer,mask]){if(c.width!==W||c.height!==h){c.width=W;c.height=h}}
     oc.clearRect(0,0,W,h);contain(oc,topImg,W,h,adjustments.top);
+    uc.clearRect(0,0,W,h);if(bottomImg)contain(uc,bottomImg,W,h,adjustments.bottom);
+    mc.clearRect(0,0,W,h);
     tiles=makeTiles(h);
   }
   paints=[];drips=[];sets=[];drops=[];tears=[];particles=[];lastTear=null;zippers=[];activeZip=null;shake=0;lightOn=false;pointer=null;lastBurst=null;
@@ -50,7 +53,7 @@ function draw(now){
   if(editing&&ready()){ctx.save();contain(ctx,bottomImg,W,h,adjustments.bottom);ctx.globalAlpha=.5;contain(ctx,topImg,W,h,adjustments.top);ctx.restore();return}
   ctx.save();
   if(shake>0.3)ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
-  if(bottomImg)contain(ctx,bottomImg,W,h,adjustments.bottom);
+  if(bottomImg)ctx.drawImage(under,0,0);
   if(topImg){
     if(mode==='block'){
       for(const b of tiles){if(b.done)continue;ctx.save();ctx.globalAlpha=b.alpha;ctx.translate(b.x+b.w/2+b.dx,b.y+b.h/2+b.dy);ctx.rotate(b.angle);ctx.drawImage(off,b.x,b.y,b.w,b.h,-b.w/2,-b.h/2,b.w,b.h);ctx.restore()}
@@ -84,7 +87,7 @@ function drawCracks(now){
 }
 function fillPoly(c,poly){c.globalCompositeOperation='source-over';c.fillStyle='#000';c.strokeStyle='#000';c.lineWidth=2;c.lineJoin='round';c.beginPath();c.moveTo(poly[0].x,poly[0].y);for(let i=1;i<poly.length;i++)c.lineTo(poly[i].x,poly[i].y);c.closePath();c.fill();c.stroke()}
 function drawRipples(now){
-  for(const d of drops){const p=Math.min(1,(now-d.t0)/1100);ctx.save();ctx.globalAlpha=(1-p)*.65;ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(d.x,d.y,d.r*(.25+p*.8),0,Math.PI*2);ctx.stroke();ctx.restore()}
+  for(const d of drops){const p=Math.max(0,Math.min(1,(now-d.t0)/1100));ctx.save();ctx.globalAlpha=(1-p)*.65;ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(d.x,d.y,d.r*(.25+p*.8),0,Math.PI*2);ctx.stroke();ctx.restore()}
 }
 function butterflyAt(p){
   if(lastTear&&Math.hypot(p.x-lastTear.x,p.y-lastTear.y)<lastTear.spacing)return;
@@ -203,9 +206,10 @@ function act(p){
   }
   kick();
 }
-function kick(){if(!running){running=true;lastNow=0;requestAnimationFrame(tick)}}
+function kick(){if(!running){running=true;lastNow=0;requestAnimationFrame(tickSafe)}}
+function tickSafe(){try{tick(performance.now())}catch(err){running=false;lastNow=0;console.error('アニメーションの処理エラー:',err)}}
 function tick(now){
-  const dt=lastNow?Math.min(now-lastNow,64):16;lastNow=now;
+  const dt=lastNow?Math.max(0,Math.min(now-lastNow,64)):16;lastNow=now;
   const f=dt/16;
   // 光（少し残る）
   if(mode==='light'&&lightStyle==='fade'&&lightOn){
@@ -215,7 +219,7 @@ function tick(now){
   }
   // たらーっ：なぞったところがじわっと広がる
   for(const s of paints){
-    const p=Math.min(1,(now-s.t0)/320),e=1-Math.pow(1-p,3);
+    const p=Math.max(0,Math.min(1,(now-s.t0)/320)),e=1-Math.pow(1-p,3);
     mc.globalCompositeOperation='source-over';mc.fillStyle='#000';mc.beginPath();mc.arc(s.x,s.y,PAINT_R*e,0,Math.PI*2);mc.fill();
   }
   paints=paints.filter(s=>now-s.t0<320);
@@ -229,7 +233,7 @@ function tick(now){
   }
   drips=drips.filter(d=>d.y<d.end);
   // 水滴が広がって、下の画像を見せる
-  for(const d of drops){const progress=Math.min(1,(now-d.t0)/900);const r=d.r*(1-Math.pow(1-progress,2));mc.globalCompositeOperation='source-over';mc.fillStyle='#000';mc.beginPath();mc.arc(d.x,d.y,r,0,Math.PI*2);mc.fill()}
+  for(const d of drops){const progress=Math.max(0,Math.min(1,(now-d.t0)/900));const r=d.r*(1-Math.pow(1-progress,2));mc.globalCompositeOperation='source-over';mc.fillStyle='#000';mc.beginPath();mc.arc(d.x,d.y,r,0,Math.PI*2);mc.fill()}
   drops=drops.filter(d=>now-d.t0<1100);
   // ヒビは残し、細かい粒が少しずつ外れる
   for(const s of sets){
@@ -251,7 +255,7 @@ function tick(now){
   }
   draw(now);
   const busy=(mode==='light'&&lightStyle==='fade'&&lightOn)||paints.length||drips.length||sets.some(s=>s.chips.some(c=>!c.done))||sets.length||particles.length||tears.length||drops.length||shake>0||falling;
-  if(busy)requestAnimationFrame(tick);else{running=false;lastNow=0}
+  if(busy)requestAnimationFrame(tickSafe);else{running=false;lastNow=0}
 }
 function pos(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)*canvas.width/r.width,y:(e.clientY-r.top)*canvas.height/r.height}}
 function resetGesture(){
@@ -276,7 +280,7 @@ $('#adjustTop').onclick=()=>selectEdit('top');$('#adjustBottom').onclick=()=>sel
 $('#adjustReset').onclick=()=>{adjustments[editTarget]={x:0,y:0,scale:1};draw(performance.now())};
 $('#adjustToggle').onclick=()=>{editing=!editing;touches.clear();gesture=null;pointer=null;$('#adjustPanel').hidden=!editing;$('#adjustToggle').textContent=editing?'調整を終了':'位置・サイズを調整';document.querySelector('.modes').style.opacity=editing?'.45':'';document.querySelector('.modes').style.pointerEvents=editing?'none':'';lightOptions.style.display=(!editing&&mode==='light')?'flex':'none';if(editing){hint.textContent='調整する画像を選び、画面上で移動・拡大縮小してください。';draw(performance.now())}else{hint.textContent=hintText();rebuild()}};
 canvas.addEventListener('pointerdown',e=>{
-  if(!ready())return;e.preventDefault();canvas.setPointerCapture(e.pointerId);
+  if(!ready())return;e.preventDefault();if(canvas.setPointerCapture){try{canvas.setPointerCapture(e.pointerId)}catch(err){}}
   if(editing){touches.set(e.pointerId,pos(e));resetGesture();return}
   pointer=pos(e);lastBurst=null;lastTear=null;if(mode==='zipper')startZip(pointer);act(pointer);
 });
@@ -326,4 +330,4 @@ for(const k of MODES)$('#'+k+'Btn').onclick=()=>setMode(k);
 $('#fadeBtn').onclick=()=>setLightStyle('fade');$('#keepBtn').onclick=()=>setLightStyle('keep');
 reset.onclick=()=>rebuild();
 draw(performance.now());
-</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a56369fe0b6e19fd',t:'MTc5Mzk2MDkzNA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a56369fe0b6e19fd',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body></html>
+</script></body></html>
